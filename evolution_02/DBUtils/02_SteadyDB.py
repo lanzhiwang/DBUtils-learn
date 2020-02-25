@@ -1,62 +1,4 @@
-"""SteadyDB - hardened DB-API 2 connections.
-
-Implements steady connections to a database based on an
-arbitrary DB-API 2 compliant database interface module.
-
-The connections are transparently reopened when they are
-closed or the database connection has been lost or when
-they are used more often than an optional usage limit.
-Database cursors are transparently reopened as well when
-the execution of a database operation cannot be performed
-due to a lost connection.  Only if the connection is lost
-after the execution, when rows are already fetched from the
-database, this will give an error and the cursor will not
-be reopened automatically, because there is no reliable way
-to recover the state of the cursor in such a situation.
-Connections which have been marked as being in a transaction
-with a begin() call will not be silently replaced either.
-
-A typical situation where database connections are lost
-is when the database server or an intervening firewall is
-shutdown and restarted for maintenance reasons.  In such a
-case, all database connections would become unusable, even
-though the database service may be already available again.
-
-The "hardened" connections provided by this module will
-make the database connections immediately available again.
-
-This approach results in a steady database connection that
-can be used by PooledDB or PersistentDB to create pooled or
-persistent connections to a database in a threaded environment
-such as the application server of "Webware for Python."
-Note, however, that the connections themselves may not be
-thread-safe (depending on the used DB-API module).
-
-For the Python DB-API 2 specification, see:
-    https://www.python.org/dev/peps/pep-0249/
-For information on Webware for Python, see:
-    https://cito.github.io/w4py/
-
-Usage:
-
-You can use the connection constructor connect() in the same
-way as you would use the connection constructor of a DB-API 2
-module if you specify the DB-API 2 module to be used as the
-first parameter, or alternatively you can specify an arbitrary
-constructor function returning new DB-API 2 compliant connection
-objects as the first parameter.  Passing just a function allows
-implementing failover mechanisms and load balancing strategies.
-
-You may also specify a usage limit as the second parameter
-(set it to None if you prefer unlimited usage), an optional
-list of commands that may serve to prepare the session as a
-third parameter, the exception classes for which the failover
-mechanism shall be applied, and you can specify whether is is
-allowed to close the connection (by default this is true).
-When the connection to the database is lost or has been used
-too often, it will be transparently reset in most situations,
-without further notice.
-
+"""
     import pgdb  # import used DB-API 2 module
     from DBUtils.SteadyDB import connect
     db = connect(pgdb, 10000, ["set datestyle to german"],
@@ -70,24 +12,6 @@ without further notice.
     cursor.close()
     ...
     db.close()
-
-
-Ideas for improvement:
-
-* Alternatively to the maximum number of uses,
-  implement a maximum time to live for connections.
-* Optionally log usage and loss of connection.
-
-
-Copyright, credits and license:
-
-* Contributed as supplement for Webware for Python and PyGreSQL
-  by Christoph Zwerschke in September 2005
-* Allowing creator functions as first parameter as in SQLAlchemy
-  suggested by Ezio Vernacotola in December 2006
-
-Licensed under the MIT license.
-
 """
 
 import sys
@@ -115,24 +39,39 @@ def connect(
 
     creator: either an arbitrary function returning new DB-API 2 compliant
         connection objects or a DB-API 2 compliant database module
+
     maxusage: maximum usage limit for the underlying DB-API 2 connection
         (number of database operations, 0 or None means unlimited usage)
         callproc(), execute() and executemany() count as one operation.
         When the limit is reached, the connection is automatically reset.
+        基础DB-API 2连接的最大使用限制（数据库操作数，0或无表示无限使用）
+        callproc()，execute()和executemany()计为一项操作。
+        达到限制后，连接将自动重置。
+
     setsession: an optional list of SQL commands that may serve to prepare
         the session, e.g. ["set datestyle to german", "set time zone mez"]
+
     failures: an optional exception class or a tuple of exception classes
         for which the failover mechanism shall be applied, if the default
         (OperationalError, InternalError) is not adequate
+        可选的异常类或异常类的元组，发生指定异常将使用故障转移机制
+
     ping: determines when the connection should be checked with ping()
-        (0 = None = never, 1 = default = when _ping_check() is called,
-        2 = whenever a cursor is created, 4 = when a query is executed,
-        7 = always, and all other bit combinations of these values)
+        确定何时应使用ping()检查连接
+        (
+            0 = None = never,
+            1 = default = when _ping_check() is called,
+            2 = whenever a cursor is created,
+            4 = when a query is executed,
+            7 = always, and all other bit combinations of these values  始终，以及这些值的所有其他位组合
+        )
+
     closeable: if this is set to false, then closing the connection will
         be silently ignored, but by default the connection can be closed
+        如果将其设置为false，则关闭连接将被默默忽略，但默认情况下可以关闭连接
+
     args, kwargs: the parameters that shall be passed to the creator
         function or the connection constructor of the DB-API 2 module
-
     """
     return SteadyDBConnection(
         creator, maxusage, setsession,
@@ -140,23 +79,20 @@ def connect(
 
 
 class SteadyDBConnection:
-    """A "tough" version of DB-API 2 connections."""
-
     version = __version__
 
     def __init__(
             self, creator, maxusage=None, setsession=None,
             failures=None, ping=1, closeable=True, *args, **kwargs):
-        """Create a "tough" DB-API 2 connection."""
-        # basic initialization to make finalizer work
         self._con = None
         self._closed = True
-        # proper initialization of the connection
+
         try:
+            # SteadyDBConnection(mock_db)
             self._creator = creator.connect
             self._dbapi = creator
         except AttributeError:
-            # try finding the DB-API 2 module via the connection creator
+            # SteadyDBConnection(mock_db.connect)
             self._creator = creator
             try:
                 self._dbapi = creator.dbapi
@@ -167,6 +103,7 @@ class SteadyDBConnection:
                         raise AttributeError
                 except (AttributeError, KeyError):
                     self._dbapi = None
+
         try:
             self._threadsafety = creator.threadsafety
         except AttributeError:
@@ -174,18 +111,22 @@ class SteadyDBConnection:
                 self._threadsafety = self._dbapi.threadsafety
             except AttributeError:
                 self._threadsafety = None
+
         if not callable(self._creator):
             raise TypeError("%r is not a connection provider." % (creator,))
+
         if maxusage is None:
             maxusage = 0
         if not isinstance(maxusage, baseint):
             raise TypeError("'maxusage' must be an integer value.")
         self._maxusage = maxusage
+
         self._setsession_sql = setsession
-        if failures is not None and not isinstance(
-                failures, tuple) and not issubclass(failures, Exception):
+
+        if failures is not None and not isinstance(failures, tuple) and not issubclass(failures, Exception):
             raise TypeError("'failures' must be a tuple of exceptions.")
         self._failures = failures
+
         self._ping = ping if isinstance(ping, int) else 0
         self._closeable = closeable
         self._args, self._kwargs = args, kwargs
@@ -254,6 +195,7 @@ class SteadyDBConnection:
                             mod = mod[:i]
                     else:
                         self._dbapi = None
+
             if self._threadsafety is None:
                 try:
                     self._threadsafety = self._dbapi.threadsafety
@@ -262,28 +204,23 @@ class SteadyDBConnection:
                         self._threadsafety = con.threadsafety
                     except AttributeError:
                         pass
+
             if self._failures is None:
                 try:
-                    self._failures = (
-                        self._dbapi.OperationalError,
-                        self._dbapi.InternalError)
+                    self._failures = (self._dbapi.OperationalError, self._dbapi.InternalError)
                 except AttributeError:
                     try:
-                        self._failures = (
-                            self._creator.OperationalError,
-                            self._creator.InternalError)
+                        self._failures = (self._creator.OperationalError, self._creator.InternalError)
                     except AttributeError:
                         try:
-                            self._failures = (
-                                con.OperationalError, con.InternalError)
+                            self._failures = (con.OperationalError, con.InternalError)
                         except AttributeError:
-                            raise AttributeError(
-                                "Could not determine failure exceptions"
-                                " (please set failures or creator.dbapi).")
+                            raise AttributeError("Could not determine failure exceptions (please set failures or creator.dbapi).")
             if isinstance(self._failures, tuple):
                 self._failure = self._failures[0]
             else:
                 self._failure = self._failures
+
             self._setsession(con)
         except Exception as error:
             # the database module could not be determined
@@ -308,7 +245,7 @@ class SteadyDBConnection:
     def _store(self, con):
         """Store a database connection for subsequent use."""
         self._con = con
-        self._transaction = False
+        self._transaction = False  # 默认不开启事务
         self._closed = False
         self._usage = 0
 
@@ -378,47 +315,24 @@ class SteadyDBConnection:
     def dbapi(self):
         """Return the underlying DB-API 2 module of the connection."""
         if self._dbapi is None:
-            raise AttributeError(
-                "Could not determine DB-API 2 module"
-                " (please set creator.dbapi).")
+            raise AttributeError("Could not determine DB-API 2 module (please set creator.dbapi).")
         return self._dbapi
 
     def threadsafety(self):
         """Return the thread safety level of the connection."""
         if self._threadsafety is None:
             if self._dbapi is None:
-                raise AttributeError(
-                    "Could not determine threadsafety"
-                    " (please set creator.dbapi or creator.threadsafety).")
+                raise AttributeError("Could not determine threadsafety (please set creator.dbapi or creator.threadsafety).")
             return 0
         return self._threadsafety
 
     def close(self):
-        """Close the tough connection.
-
-        You are allowed to close a tough connection by default
-        and it will not complain if you close it more than once.
-
-        You can disallow closing connections by setting
-        the closeable parameter to something false.  In this case,
-        closing tough connections will be silently ignored.
-
-        """
         if self._closeable:
             self._close()
         elif self._transaction:
             self._reset()
 
     def begin(self, *args, **kwargs):
-        """Indicate the beginning of a transaction.
-
-        During a transaction, connections won't be transparently
-        replaced, and all errors will be raised to the application.
-
-        If the underlying driver supports this method, it will be called
-        with the given parameters (e.g. for distributed transactions).
-
-        """
         self._transaction = True
         try:
             begin = self._con.begin
