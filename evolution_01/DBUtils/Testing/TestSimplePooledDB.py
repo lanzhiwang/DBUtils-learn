@@ -1,17 +1,3 @@
-"""Test the SimplePooledDB module.
-
-Note:
-We don't test performance here, so the test does not predicate
-whether SimplePooledDB actually will help in improving performance or not.
-We also do not test any real world DB-API 2 module, we just
-mock the basic connection functionality of an arbitrary module.
-
-Copyright and credit info:
-
-* This test was contributed by Christoph Zwerschke
-
-"""
-
 __version__ = '0.8.1'
 __revision__ = "$Rev$"
 __date__ = "$Date$"

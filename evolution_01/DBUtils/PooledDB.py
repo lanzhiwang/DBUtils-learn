@@ -1,104 +1,3 @@
-"""PooledDB - pooling for DB-API 2 connections.
-
-Implements a pool of solid, thread-safe cached connections
-to a database which are transparently reused,
-using an arbitrary DB-API 2 compliant database interface module.
-
-This should result in a speedup for persistent applications such as the
-application server of "Webware for Python," without loss of robustness.
-
-Robustness is provided by using "hardened" SolidDB connections.
-Even if the underlying database is restarted and all connections
-are lost, they will be automatically and transparently reopened.
-
-Measures are taken to make the pool of connections thread-safe.
-If the underlying DB-API module is thread-safe at the connection level,
-the requested connections may be shared with other threads by default,
-but you can also request dedicated connections in case you need them.
-
-For the Python DB-API 2 specification, see:
-	http://www.python.org/peps/pep-0249.html
-For information on Webware for Python, see:
-	http://www.webwareforpython.org
-
-
-Usage:
-
-First you need to set up the database connection pool by creating
-an instance of PooledDB, passing the following parameters:
-
-	dbapi: the DB-API 2 compliant database module to be used
-	mincached: the initial number of idle connections in the pool
-		(the default of 0 means no connections are made at startup)
-	maxcached: the maximum number of idle connections in the pool
-		(the default value of 0 means unlimited pool size)
-	maxshared: maximum number of shared connections allowed
-		(the default value of 0 means all connections are dedicated)
-		When this maximum number is reached, connections are
-		shared if they have been requested as shareable.
-	maxconnections: maximum number of connections generally allowed
-		(the default value of 0 means any number of connections)
-	blocking: determines behavior when exceeding the maximum
-		(the default of 0 or False means report an error; otherwise
-		block and wait until the number of connections decreases)
-	maxusage: maximum number of reuses of a single connection
-		(the default of 0 or False means unlimited reuse)
-		When this maximum usage number of the connection is reached,
-		the connection is automatically reset (closed and reopened).
-	setsession: an optional list of SQL commands that may serve to
-		prepare the session, e.g. ["set datestyle to german", ...]
-
-	Additionally, you have to pass the parameters for the actual
-	database connection which are passed via the DB-API 2 module,
-	such as the names of the host, database, user, password etc.
-
-For instance, if you are using pgdb as your DB-API 2 database module and
-want a pool of at least five connections to your local database 'mydb':
-
-	import pgdb # import used DB-API 2 module
-	from PooledPg import PooledPg
-	pool = PooledPg(5, database='mydb')
-
-Once you have set up the connection pool you can request
-database connections from that pool:
-
-	db = pool.connection()
-
-You can use these connections just as if they were ordinary
-DB-API 2 connections. Actually what you get is the hardened
-SolidDB version of the underlying DB-API 2 connection.
-
-Please note that the connection may be shared with other threads
-by default if you set a non-zero maxshared parameter and the DB-API 2
-module allows this. If you want to have a dedicated connection, use:
-
-	db = pool.connection(0)
-
-If you don't need it any more, you should immediately return it to the
-pool with db.close(). You can get another connection in the same way.
-
-
-Ideas for improvement:
-
-* Add thread for monitoring and restarting bad or expired connections
-(similar to DBConnectionPool/ResourcePool by Warren Smith).
-* Optionally log usage, bad connections and exceeding of limits.
-
-
-Copyright and credit info:
-
-* Contributed as supplement for Webware for Python and PyGreSQL
-by Christoph Zwerschke in September 2005
-* Based on the code of DBPool, contributed to Webware for Python
-by Dan Green in December 2000
-
-
-License and disclaimer:
-
-See http://www.webwareforpython.org/Webware/Docs/Copyright.html
-
-"""
-
 __version__ = '0.8.1'
 __revision__ = "$Rev$"
 __date__ = "$Date$"
@@ -114,48 +13,24 @@ class InvalidConnection(PooledDBError): pass
 
 
 class PooledDB:
-	"""Pool for classic PyGreSQL connections.
-
-	After you have created the connection pool, you can use
-	connection() to get pooled, solid PostGreSQL connections.
-	"""
-
-	def __init__(self, dbapi,
-		mincached=0, maxcached=0,
-		maxshared=0, maxconnections=0, blocking=0,
-		maxusage=0, setsession=None,
-		*args, **kwargs):
-		"""Set up the PostgreSQL connection pool.
-
-		dbapi: the DB-API 2 compliant database module to be used
-		mincached: initial number of idle connections in the pool
-			(0 means no connections are made at startup)
-		maxcached: maximum number of idle connections in the pool
-			(0 means unlimited pool size)
-		maxshared: maximum number of shared connections
-			(0 means all connections are dedicated)
-			When this maximum number is reached, connections are
-			shared if they have been requested as shareable.
-		maxconnections: maximum number of connections generally allowed
-			(0 means an arbitrary number of connections)
-		blocking: determines behavior when exceeding the maximum
-			(0 or False means report an error; otherwise
-			block and wait until the number of connections decreases)
-		maxusage: maximum number of reuses of a single connection
-			(0 or False means unlimited reuse)
-			When this maximum usage number of the connection is reached,
-			the connection is automatically reset (closed and reopened).
-		setsession: optional list of SQL commands that may serve to prepare
-			the session, e.g. ["set datestyle to ...", "set time zone ..."]
-		args, kwargs: the parameters that shall be used to establish
-			the PostgreSQL connections using class PyGreSQL pg.DB()
-		"""
+	def __init__(
+		self,
+		dbapi,
+		mincached=0,
+		maxcached=0,
+		maxshared=0,
+		maxconnections=0,
+		blocking=0,
+		maxusage=0,
+		setsession=None,
+		*args,
+		**kwargs):
 		self._dbapi = dbapi
 		# Connections can be only shareable if the underlying DB-API 2
 		# module is thread-safe at the connection level:
 		threadsafety = getattr(dbapi, 'threadsafety', None)
 		if not threadsafety:
-			raise NotSupportedError, "Database module is not thread-safe."
+			raise NotSupportedError
 		self._args, self._kwargs = args, kwargs
 		self._maxusage = maxusage
 		self._setsession = setsession

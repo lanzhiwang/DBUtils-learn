@@ -1,92 +1,3 @@
-"""PersistentDB - persistent DB-API 2 connections.
-
-Implements solid, thread-affine persistent connections to a database
-based on an arbitrary DB-API 2 compliant database interface module.
-
-This should result in a speedup for persistent applications such as the
-application server of "Webware for Python," without loss of robustness.
-
-Robustness is provided by using "hardened" SolidDB connections.
-Even if the underlying database is restarted and all connections
-are lost, they will be automatically and transparently reopened.
-
-Measures are taken to make the database connections thread-affine.
-This means the same thread always uses the same cached connection,
-and no other thread will use it. So even if the underlying DB-API module
-is not thread-safe at the connection level this will be no problem here.
-
-For best performance, the application server should keep threads persistent.
-For this, you have to set MinServerThreads = MaxServerThreads in Webware.
-
-For the Python DB-API 2 specification, see:
-	http://www.python.org/peps/pep-0249.html
-For information on Webware for Python, see:
-	http://www.webwareforpython.org
-
-
-Usage:
-
-First you need to set up a generator for your kind of database connections
-by creating an instance of PersistentDB, passing the following parameters:
-
-	dbapi: the DB-API 2 compliant database module to be used
-	maxusage: the maximum number of reuses of a single connection
-		(the default of 0 or False means unlimited reuse)
-		Whenever the limit is reached, the connection will be reset.
-	setsession: an optional list of SQL commands that may serve to
-		prepare the session, e.g. ["set datestyle to german", ...].
-
-	Additionally, you have to pass the parameters for the actual
-	databse connection which are passed via the DB-API 2 module,
-	such as the names of the host, database, user, password etc.
-
-For instance, if you are using pgdb as your DB-API 2 database module and want
-every connection to your local database 'mydb' to be reused 1000 times:
-
-	import pgdb # import used DB-API 2 module
-	from PersistentDB import PersistentDB
-	persist = PersistentDB(pgdb, 1000, database='mydb')
-
-Once you have set up the generator with these parameters, you can
-request database connections of that kind:
-
-	db = persist.connection()
-
-You can use these connections just as if they were ordinary
-DB-API 2 connections. Actually what you get is the hardened
-SolidDB version of the underlying DB-API 2 connection.
-
-You should not use db.close() since this would really close the
-connection and reopen it at the next usage anyway. This would
-be contrary to the intent of having persistent connections.
-
-
-Requirements:
-
-Python 2.4.1 recommended. Minimum requirement: Python 2.2.
-
-
-Ideas for improvement:
-
-* Add thread for monitoring and restarting bad or expired connections
-(similar to DBConnectionPool/ResourcePool by Warren Smith).
-* Optionally log usage, bad connections and exceeding of limits.
-
-
-Copyright and credit info:
-
-* Contributed as supplement for Webware for Python and PyGreSQL
-by Christoph Zwerschke in September 2005
-* Based on an idea presented on the Webware developer mailing list
-by Geoffrey Talvola in July 2005
-
-
-License and disclaimer:
-
-See http://www.webwareforpython.org/Webware/Docs/Copyright.html
-
-"""
-
 __version__ = '0.8.1'
 __revision__ = "$Rev$"
 __date__ = "$Date$"
@@ -99,27 +10,9 @@ class NotSupportedError(PersistentDBError): pass
 
 
 class PersistentDB:
-	"""Generator for persistent DB-API 2 connections.
-
-	After you have created the connection pool, you can use
-	connection() to get thread-affine, solid DB-API 2 connections.
-	"""
-
-	def __init__(self, dbapi,
-		maxusage=0, setsession=None, *args, **kwargs):
-		"""Set up the persistent DB-API 2 connection generator.
-
-		dbapi: the DB-API 2 compliant database module to be used
-		maxusage: maximum number of reuses of a single connection
-			(number of database operations, 0 or False means unlimited)
-			Whenever the limit is reached, the connection will be reset.
-		setsession: optional list of SQL commands that may serve to prepare
-			the session, e.g. ["set datestyle to ...", "set time zone ..."]
-		args, kwargs: the parameters that shall be used to establish
-			the database connections using the DB-API 2 module
-		"""
+	def __init__(self, dbapi, maxusage=0, setsession=None, *args, **kwargs):
 		if not getattr(dbapi, 'threadsafety', None):
-			raise NotSupportedError, "Database module is not thread-safe."
+			raise NotSupportedError
 		self._dbapi = dbapi
 		self._maxusage = maxusage
 		self._setsession = setsession
@@ -128,8 +21,7 @@ class PersistentDB:
 
 	def solid_connection(self):
 		"""Get a solid, non-persistent DB-API 2 connection."""
-		return connect(self._dbapi,
-			self._maxusage, self._setsession, *self._args, **self._kwargs)
+		return connect(self._dbapi, self._maxusage, self._setsession, *self._args, **self._kwargs)
 
 	def connection(self, shareable=0):
 		"""Get a solid, persistent DB-API 2 connection.
