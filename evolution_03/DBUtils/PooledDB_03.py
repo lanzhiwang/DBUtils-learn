@@ -111,9 +111,13 @@ back before being given back to the connection pool.
 
 """
 
+import inspect
+
 from threading import Condition
 
-from DBUtils.SteadyDB import connect
+from SteadyDB import connect
+
+import Tests.mock_db as dbapi
 
 __version__ = '1.3'
 
@@ -143,7 +147,6 @@ class PooledDB:
             maxusage=None, setsession=None, reset=True,
             failures=None, ping=1,
             *args, **kwargs):
-
         try:
             threadsafety = creator.threadsafety
         except AttributeError:
@@ -183,6 +186,7 @@ class PooledDB:
             self._maxshared = maxshared
             self._shared_cache = []  # self._shared_cache = [SharedDBConnection]
         else:
+            self._shared_cache = []
             self._maxshared = 0
 
         if maxconnections:
@@ -197,10 +201,23 @@ class PooledDB:
         self._idle_cache = []  # self._idle_cache = [SteadyDB]
         self._lock = Condition()
         self._connections = 0
+        # print('_maxcached: %s' % self._maxcached)
+        # print('_maxshared: %s' % self._maxshared)
+        # print('_maxconnections: %s' % self._maxconnections)
+        # print('_idle_cache: %s' % self._idle_cache)
+        # print('_connections: %s' % self._connections)
+
         # Establish an initial number of idle database connections:
         idle = [self.dedicated_connection() for i in range(mincached)]
+        # print(idle)
         while idle:
-            idle.pop().close()
+            p = idle.pop()
+            # print(p)
+            p.close()
+
+    def __str__(self):
+        return 'self._blocking: %s\nself._maxusage: %s\nself._setsession: %s\nself._reset: %s\nself._failures: %s\nself._ping: %s\nself._maxcached: %s\nself._maxshared: %s\nself._shared_cache: %s\nself._maxconnections: %s\nself._idle_cache: %s\nself._connections: %s' % (self._blocking, self._maxusage, self._setsession, self._reset, self._failures, self._ping, self._maxcached, self._maxshared, self._shared_cache, self._maxconnections, self._idle_cache, self._connections)
+
 
     def steady_connection(self):
         """Get a steady, unpooled DB-API 2 connection."""
@@ -218,7 +235,7 @@ class PooledDB:
         if shareable and self._maxshared:
             self._lock.acquire()
             try:
-                while not self._shared_cache and self._maxconnections and self._connections >= self._maxconnections:
+                while (not self._shared_cache) and self._maxconnections and self._connections >= self._maxconnections:
                     self._wait_lock()
                     """
                     if not self._blocking:
@@ -285,7 +302,9 @@ class PooledDB:
         return self.connection(False)
 
     def unshare(self, con):
-        """Decrease the share of a connection in the shared cache."""
+        """
+        con: SharedDBConnection
+        """
         self._lock.acquire()
         try:
             con.unshare()
@@ -304,9 +323,13 @@ class PooledDB:
         """
         con: the underlying SteadyDB connection
         """
+        # print(con)
         self._lock.acquire()
         try:
-            if not self._maxcached or len(self._idle_cache) < self._maxcached:
+            # print(self._maxcached)
+            # print(self._idle_cache)
+            if (not self._maxcached) or len(self._idle_cache) < self._maxcached:
+                # print('asd')
                 con._reset(force=self._reset)  # rollback possible transaction
                 # the idle cache is not full, so put it there
                 self._idle_cache.append(con)  # append it to the idle cache
@@ -374,6 +397,7 @@ class PooledDedicatedDBConnection:
         # Instead of actually closing the connection,
         # return it to the pool for future reuse.
         if self._con:
+            # print('qwe')
             self._pool.cache(self._con)
             self._con = None
 
@@ -387,6 +411,8 @@ class PooledDedicatedDBConnection:
     def __del__(self):
         """Delete the pooled connection."""
         try:
+            for level in inspect.stack():
+                print('{}[{}] -> {}'.format(level.frame.f_code.co_filename, level.lineno,level.code_context[level.index].strip(),))
             self.close()
         except Exception:
             pass
@@ -476,3 +502,74 @@ class PooledSharedDBConnection:
             self.close()
         except Exception:
             pass
+
+
+if __name__ == '__main__':
+    pass
+
+
+
+def test17_ThreeThreadsTwoConnections(self):
+    for threadsafety in (1, 2):
+        dbapi.threadsafety = threadsafety
+        pool = PooledDB(dbapi, 2, 2, 0, 2, True)
+        try:
+            from queue import Queue, Empty
+        except ImportError:  # Python 2
+            from Queue import Queue, Empty
+        queue = Queue(3)
+
+        def connection():
+            try:
+                queue.put(pool.connection(), 1, 1)
+            except Exception:
+                queue.put(pool.connection(), 1)
+
+        from threading import Thread
+        for i in range(3):
+            Thread(target=connection).start()
+        try:
+            db1 = queue.get(1, 1)
+            db2 = queue.get(1, 1)
+        except TypeError:
+            db1 = queue.get(1)
+            db2 = queue.get(1)
+        self.assertNotEqual(db1, db2)
+        db1_con = db1._con
+        db2_con = db2._con
+        self.assertNotEqual(db1_con, db2_con)
+        try:
+            self.assertRaises(Empty, queue.get, 1, 0.1)
+        except TypeError:
+            self.assertRaises(Empty, queue.get, 0)
+        del db1
+        try:
+            db1 = queue.get(1, 1)
+        except TypeError:
+            db1 = queue.get(1)
+        self.assertNotEqual(db1, db2)
+        self.assertNotEqual(db1._con, db2._con)
+        self.assertEqual(db1._con, db1_con)
+        pool = PooledDB(dbapi, 2, 2, 1, 2, True)
+        db1 = pool.connection(False)
+        db2 = pool.connection(False)
+        self.assertNotEqual(db1, db2)
+        db1_con = db1._con
+        db2_con = db2._con
+        self.assertNotEqual(db1_con, db2_con)
+        Thread(target=connection).start()
+        try:
+            self.assertRaises(Empty, queue.get, 1, 0.1)
+        except TypeError:
+            self.assertRaises(Empty, queue.get, 0)
+        del db1
+        try:
+            db1 = queue.get(1, 1)
+        except TypeError:
+            db1 = queue.get(1)
+        self.assertNotEqual(db1, db2)
+        self.assertNotEqual(db1._con, db2._con)
+        self.assertEqual(db1._con, db1_con)
+
+
+
