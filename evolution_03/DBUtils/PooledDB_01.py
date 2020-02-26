@@ -543,3 +543,25 @@ if __name__ == '__main__':
     ['rollback']
     PooledDB_01.py[408] -> for level in inspect.stack():
     """
+
+def test21_ResetTransaction(self):
+        pool = PooledDB(dbapi, 1, 1, 0)
+        db = pool.connection()
+        db.begin()
+        con = db._con  # SteadyDB
+        self.assertTrue(con._transaction)
+        self.assertEqual(con._con.session, ['rollback'])
+        db.close()
+        self.assertTrue(pool.connection()._con is con)
+        self.assertTrue(not con._transaction)
+        self.assertEqual(con._con.session, ['rollback'] * 3)
+        pool = PooledDB(dbapi, 1, 1, 0, reset=False)
+        db = pool.connection()
+        db.begin()
+        con = db._con
+        self.assertTrue(con._transaction)
+        self.assertEqual(con._con.session, [])
+        db.close()
+        self.assertTrue(pool.connection()._con is con)
+        self.assertTrue(not con._transaction)
+        self.assertEqual(con._con.session, ['rollback'])
