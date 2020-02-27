@@ -1,31 +1,4 @@
-"""PooledDB - pooling for DB-API 2 connections.
-
-Implements a pool of steady, thread-safe cached connections
-to a database which are transparently reused,
-using an arbitrary DB-API 2 compliant database interface module.
-
-This should result in a speedup for persistent applications such as the
-application server of "Webware for Python," without loss of robustness.
-
-Robustness is provided by using "hardened" SteadyDB connections.
-Even if the underlying database is restarted and all connections
-are lost, they will be automatically and transparently reopened.
-However, since you don't want this to happen in the middle of a database
-transaction, you must explicitly start transactions with the begin()
-method so that SteadyDB knows that the underlying connection shall not
-be replaced and errors passed on until the transaction is completed.
-
-Measures are taken to make the pool of connections thread-safe.
-If the underlying DB-API module is thread-safe at the connection level,
-the requested connections may be shared with other threads by default,
-but you can also request dedicated connections in case you need them.
-
-For the Python DB-API 2 specification, see:
-    https://www.python.org/dev/peps/pep-0249/
-For information on Webware for Python, see:
-    https://cito.github.io/w4py/
-
-
+"""
 Usage:
 
 First you need to set up the database connection pool by creating
@@ -33,42 +6,52 @@ an instance of PooledDB, passing the following parameters:
 
     creator: either an arbitrary function returning new DB-API 2
         connection objects or a DB-API 2 compliant database module
+
     mincached: the initial number of idle connections in the pool
         (the default of 0 means no connections are made at startup)
+
     maxcached: the maximum number of idle connections in the pool
         (the default value of 0 or None means unlimited pool size)
+
     maxshared: maximum number of shared connections allowed
-        (the default value of 0 or None means all connections are dedicated)
+        (the default value of 0 or None means all connections are dedicated 专用)
         When this maximum number is reached, connections are
         shared if they have been requested as shareable.
+
     maxconnections: maximum number of connections generally allowed
         (the default value of 0 or None means any number of connections)
+
     blocking: determines behavior when exceeding the maximum
         (if this is set to true, block and wait until the number of
         connections decreases, but by default an error will be reported)
+        确定超出最大值时的行为（如果将其设置为true，则阻止并等待直到连接数量减少，但默认情况下会报告错误）
+
     maxusage: maximum number of reuses of a single connection
         (the default of 0 or None means unlimited reuse)
         When this maximum usage number of the connection is reached,
         the connection is automatically reset (closed and reopened).
+
     setsession: an optional list of SQL commands that may serve to
         prepare the session, e.g. ["set datestyle to german", ...]
+
     reset: how connections should be reset when returned to the pool
         (False or None to rollback transcations started with begin(),
         the default value True always issues a rollback for safety's sake)
+        返回池后应如何重置连接（对于以begin() 开始的回滚事务，为False或None，为安全起见，默认值True始终发出回滚）
+
     failures: an optional exception class or a tuple of exception classes
         for which the connection failover mechanism shall be applied,
         if the default (OperationalError, InternalError) is not adequate
+
     ping: an optional flag controlling when connections are checked
         with the ping() method if such a method is available
-        (0 = None = never, 1 = default = whenever fetched from the pool,
-        2 = when a cursor is created, 4 = when a query is executed,
-        7 = always, and all other bit combinations of these values)
-
-    The creator function or the connect function of the DB-API 2 compliant
-    database module specified as the creator will receive any additional
-    parameters such as the host, database, user, password etc.  You may
-    choose some or all of these parameters in your own creator function,
-    allowing for sophisticated failover and load-balancing mechanisms.
+        (
+            0 = None = never,
+            1 = default = whenever fetched from the pool,
+            2 = when a cursor is created,
+            4 = when a query is executed,
+            7 = always, and all other bit combinations of these values
+        )
 
 For instance, if you are using pgdb as your DB-API 2 database module and
 want a pool of at least five connections to your local database 'mydb':
@@ -85,14 +68,16 @@ database connections from that pool:
 You can use these connections just as if they were ordinary
 DB-API 2 connections.  Actually what you get is the hardened
 SteadyDB version of the underlying DB-API 2 connection.
+您可以像使用普通连接一样使用这些连接DB-API 2连接。 其实你得到的是硬化
+基础DB-API 2连接的SteadyDB版本。
 
 Please note that the connection may be shared with other threads
 by default if you set a non-zero maxshared parameter and the DB-API 2
-module allows this.  If you want to have a dedicated connection, use:
+module allows this.  If you want to have a dedicated 专用 connection, use:
 
     db = pool.connection(shareable=False)
 
-You can also use this to get a dedicated connection:
+You can also use this to get a dedicated 专用 connection:
 
     db = pool.dedicated_connection()
 
@@ -106,6 +91,8 @@ Warning: In a threaded environment, never do the following:
 This would release the connection too early for reuse which may be
 fatal if the connections are not thread-safe.  Make sure that the
 connection object stays alive as long as you are using it, like that:
+这将太早释放连接而无法重用，如果连接不是线程安全的，这可能是会致命。 只要使用连接对象，
+就要确保连接对象就会保持活动状态，如下所示：
 
     db = pool.connection()
     cur = db.cursor()
@@ -119,29 +106,138 @@ begin() method.  This ensures that the connection will not be shared
 with other threads, that the transparent reopening will be suspended
 until the end of the transaction, and that the connection will be rolled
 back before being given back to the connection pool.
+请注意，您需要通过调用begin()方法明确开启一个事务。 这样可以确保
+连接不会与其他线程共享，当事务结束时将透明重新打开连接，当连接返回给连接池时会被回滚。
 
 
-Ideas for improvement:
+mincached | maxcached
+0           0
+0           3
+3           0
+3           3
+3           5
 
-* Add a thread for monitoring, restarting (or closing) bad or expired
-  connections (similar to DBConnectionPool/ResourcePool by Warren Smith).
-* Optionally log usage, bad connections and exceeding of limits.
+maxshared
+0
+2
+3
+4
+5
+6
+
+mincached | maxcached | maxshared
+0           0           0
+0           0           3
+
+0           3           0
+0           3           2
+0           3           3
+0           3           4
+
+3           0           0
+3           0           2
+3           0           3
+3           0           5
+
+3           3           0
+3           3           2
+3           3           3
+3           3           4
+
+3           5           0
+3           5           2
+3           5           3
+3           5           4
+3           5           5
+3           5           6
 
 
-Copyright, credits and license:
+mincached | maxcached | maxshared | maxconnections | connections
+0           0           0           0
+0           0           0           2
 
-* Contributed as supplement for Webware for Python and PyGreSQL
-  by Christoph Zwerschke in September 2005
-* Based on the code of DBPool, contributed to Webware for Python
-  by Dan Green in December 2000
+0           0           3           0
+0           0           3           3
+0           0           3           5
 
-Licensed under the MIT license.
+0           3           0           0
+0           3           0           3
+0           3           0           5
+
+0           3           2           0
+0           3           2           3
+0           3           2           5
+
+0           3           3           0
+0           3           3           3
+0           3           3           5
+
+0           3           4           0
+0           3           4           4
+0           3           4           5
+
+3           0           0           0
+3           0           0           3
+3           0           0           5
+
+3           0           2           0
+3           0           2           3
+3           0           2           5
+
+3           0           3           0
+3           0           3           3
+3           0           3           5
+
+3           0           5           0
+3           0           5           5
+3           0           5           6
+
+3           3           0           0
+3           3           0           3
+3           3           0           5
+
+3           3           2           0
+3           3           2           3
+3           3           2           5
+
+3           3           3           0
+3           3           3           3
+3           3           3           5
+
+3           3           4           0
+3           3           4           4
+3           3           4           5
+
+3           5           0           0
+3           5           0           5
+3           5           0           6
+
+3           5           2           0
+3           5           2           5
+3           5           2           6
+
+3           5           3           0
+3           5           3           5
+3           5           3           6
+
+3           5           4           0
+3           5           4           5
+3           5           4           6
+
+3           5           5           0
+3           5           5           5
+3           5           5           6
+
+3           5           6           0
+3           5           6           6
+3           5           6           7
 
 """
 
+
 from threading import Condition
 
-from DBUtils.SteadyDB import connect
+from SteadyDB import connect
 
 __version__ = '1.3'
 
@@ -163,13 +259,6 @@ class TooManyConnections(PooledDBError):
 
 
 class PooledDB:
-    """Pool for DB-API 2 connections.
-
-    After you have created the connection pool, you can use
-    connection() to get pooled, steady DB-API 2 connections.
-
-    """
-
     version = __version__
 
     def __init__(
@@ -178,43 +267,7 @@ class PooledDB:
             maxusage=None, setsession=None, reset=True,
             failures=None, ping=1,
             *args, **kwargs):
-        """Set up the DB-API 2 connection pool.
 
-        creator: either an arbitrary function returning new DB-API 2
-            connection objects or a DB-API 2 compliant database module
-        mincached: initial number of idle connections in the pool
-            (0 means no connections are made at startup)
-        maxcached: maximum number of idle connections in the pool
-            (0 or None means unlimited pool size)
-        maxshared: maximum number of shared connections
-            (0 or None means all connections are dedicated)
-            When this maximum number is reached, connections are
-            shared if they have been requested as shareable.
-        maxconnections: maximum number of connections generally allowed
-            (0 or None means an arbitrary number of connections)
-        blocking: determines behavior when exceeding the maximum
-            (if this is set to true, block and wait until the number of
-            connections decreases, otherwise an error will be reported)
-        maxusage: maximum number of reuses of a single connection
-            (0 or None means unlimited reuse)
-            When this maximum usage number of the connection is reached,
-            the connection is automatically reset (closed and reopened).
-        setsession: optional list of SQL commands that may serve to prepare
-            the session, e.g. ["set datestyle to ...", "set time zone ..."]
-        reset: how connections should be reset when returned to the pool
-            (False or None to rollback transcations started with begin(),
-            True to always issue a rollback for safety's sake)
-        failures: an optional exception class or a tuple of exception classes
-            for which the connection failover mechanism shall be applied,
-            if the default (OperationalError, InternalError) is not adequate
-        ping: determines when the connection should be checked with ping()
-            (0 = None = never, 1 = default = whenever fetched from the pool,
-            2 = when a cursor is created, 4 = when a query is executed,
-            7 = always, and all other bit combinations of these values)
-        args, kwargs: the parameters that shall be passed to the creator
-            function or the connection constructor of the DB-API 2 module
-
-        """
         try:
             threadsafety = creator.threadsafety
         except AttributeError:
@@ -227,6 +280,7 @@ class PooledDB:
                 threadsafety = 0
         if not threadsafety:
             raise NotSupportedError("Database module is not thread-safe.")
+
         self._creator = creator
         self._args, self._kwargs = args, kwargs
         self._blocking = blocking
@@ -235,6 +289,7 @@ class PooledDB:
         self._reset = reset
         self._failures = failures
         self._ping = ping
+
         if mincached is None:
             mincached = 0
         if maxcached is None:
@@ -247,11 +302,13 @@ class PooledDB:
             self._maxcached = maxcached
         else:
             self._maxcached = 0
+
         if threadsafety > 1 and maxshared:
             self._maxshared = maxshared
             self._shared_cache = []  # the cache for shared connections
         else:
             self._maxshared = 0
+
         if maxconnections:
             if maxconnections < maxcached:
                 maxconnections = maxcached
@@ -260,113 +317,106 @@ class PooledDB:
             self._maxconnections = maxconnections
         else:
             self._maxconnections = 0
+
         self._idle_cache = []  # the actual pool of idle connections
         self._lock = Condition()
         self._connections = 0
-        # Establish an initial number of idle database connections:
         idle = [self.dedicated_connection() for i in range(mincached)]
         while idle:
             idle.pop().close()
 
     def steady_connection(self):
-        """Get a steady, unpooled DB-API 2 connection."""
         return connect(
             self._creator, self._maxusage, self._setsession,
             self._failures, self._ping, True, *self._args, **self._kwargs)
 
+    def dedicated_connection(self):
+        return self.connection(shareable=False)
+
     def connection(self, shareable=True):
-        """Get a steady, cached DB-API 2 connection from the pool.
-
-        If shareable is set and the underlying DB-API 2 allows it,
-        then the connection may be shared with other threads.
-
-        """
         if shareable and self._maxshared:
             self._lock.acquire()
             try:
-                while (not self._shared_cache and self._maxconnections
-                        and self._connections >= self._maxconnections):
+                while (not self._shared_cache) and self._maxconnections and self._connections >= self._maxconnections:
                     self._wait_lock()
                 if len(self._shared_cache) < self._maxshared:
-                    # shared cache is not full, get a dedicated connection
-                    try:  # first try to get it from the idle cache
+                    try:
                         con = self._idle_cache.pop(0)
-                    except IndexError:  # else get a fresh connection
+                    except IndexError:
                         con = self.steady_connection()
                     else:
-                        con._ping_check()  # check this connection
+                        con._ping_check()
                     con = SharedDBConnection(con)
                     self._connections += 1
-                else:  # shared cache full or no more connections allowed
-                    self._shared_cache.sort()  # least shared connection first
-                    con = self._shared_cache.pop(0)  # get it
+                else:
+                    self._shared_cache.sort()
+                    con = self._shared_cache.pop(0)
                     while con.con._transaction:
-                        # do not share connections which are in a transaction
                         self._shared_cache.insert(0, con)
                         self._wait_lock()
                         self._shared_cache.sort()
                         con = self._shared_cache.pop(0)
-                    con.con._ping_check()  # check the underlying connection
-                    con.share()  # increase share of this connection
-                # put the connection (back) into the shared cache
+                    con.con._ping_check()
+                    con.share()
                 self._shared_cache.append(con)
                 self._lock.notify()
             finally:
                 self._lock.release()
             con = PooledSharedDBConnection(self, con)
-        else:  # try to get a dedicated connection
+        else:
             self._lock.acquire()
             try:
-                while (self._maxconnections
-                        and self._connections >= self._maxconnections):
+                while self._maxconnections and self._connections >= self._maxconnections:
                     self._wait_lock()
-                # connection limit not reached, get a dedicated connection
-                try:  # first try to get it from the idle cache
+                try:
                     con = self._idle_cache.pop(0)
-                except IndexError:  # else get a fresh connection
+                except IndexError:
                     con = self.steady_connection()
                 else:
-                    con._ping_check()  # check connection
+                    con._ping_check()
                 con = PooledDedicatedDBConnection(self, con)
                 self._connections += 1
             finally:
                 self._lock.release()
         return con
 
-    def dedicated_connection(self):
-        """Alias for connection(shareable=False)."""
-        return self.connection(False)
-
-    def unshare(self, con):
-        """Decrease the share of a connection in the shared cache."""
-        self._lock.acquire()
-        try:
-            con.unshare()
-            shared = con.shared
-            if not shared:  # connection is idle,
-                try:  # so try to remove it
-                    self._shared_cache.remove(con)  # from shared cache
-                except ValueError:
-                    pass  # pool has already been closed
-        finally:
-            self._lock.release()
-        if not shared:  # connection has become idle,
-            self.cache(con.con)  # so add it to the idle cache
-
     def cache(self, con):
-        """Put a dedicated connection back into the idle cache."""
         self._lock.acquire()
         try:
-            if not self._maxcached or len(self._idle_cache) < self._maxcached:
-                con._reset(force=self._reset)  # rollback possible transaction
-                # the idle cache is not full, so put it there
-                self._idle_cache.append(con)  # append it to the idle cache
-            else:  # if the idle cache is already full,
-                con.close()  # then close the connection
+            if not self._maxcached:
+                con._reset(force=self._reset)
+                self._idle_cache.append(con)
+            elif len(self._idle_cache) < self._maxcached:
+                con._reset(force=self._reset)
+                self._idle_cache.append(con)
+            else:
+                con.close()
             self._connections -= 1
             self._lock.notify()
         finally:
             self._lock.release()
+
+    def unshare(self, con):
+        self._lock.acquire()
+        try:
+            con.unshare()
+            shared = con.shared
+            if not shared:
+                try:
+                    self._shared_cache.remove(con)
+                except ValueError:
+                    pass
+        finally:
+            self._lock.release()
+
+        if not shared:
+            self.cache(con.con)
+
+    def _wait_lock(self):
+        """Wait until notified or report an error."""
+        if not self._blocking:
+            raise TooManyConnections
+        self._lock.wait()
 
     def close(self):
         """Close all connections in the pool."""
@@ -397,14 +447,6 @@ class PooledDB:
         except Exception:
             pass
 
-    def _wait_lock(self):
-        """Wait until notified or report an error."""
-        if not self._blocking:
-            raise TooManyConnections
-        self._lock.wait()
-
-
-# Auxiliary classes for pooled connections
 
 class PooledDedicatedDBConnection:
     """Auxiliary proxy class for pooled dedicated connections."""
