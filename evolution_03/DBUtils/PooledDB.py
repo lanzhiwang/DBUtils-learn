@@ -109,6 +109,129 @@ back before being given back to the connection pool.
 请注意，您需要通过调用begin()方法明确开启一个事务。 这样可以确保
 连接不会与其他线程共享，当事务结束时将透明重新打开连接，当连接返回给连接池时会被回滚。
 
+
+mincached | maxcached
+0           0
+0           3
+3           0
+3           3
+3           5
+
+maxshared
+0
+2
+3
+4
+5
+6
+
+mincached | maxcached | maxshared
+0           0           0
+0           0           3
+
+0           3           0
+0           3           2
+0           3           3
+0           3           4
+
+3           0           0
+3           0           2
+3           0           3
+3           0           5
+
+3           3           0
+3           3           2
+3           3           3
+3           3           4
+
+3           5           0
+3           5           2
+3           5           3
+3           5           4
+3           5           5
+3           5           6
+
+
+mincached | maxcached | maxshared | maxconnections | connections
+0           0           0           0
+0           0           0           2
+
+0           0           3           0
+0           0           3           3
+0           0           3           5
+
+0           3           0           0
+0           3           0           3
+0           3           0           5
+
+0           3           2           0
+0           3           2           3
+0           3           2           5
+
+0           3           3           0
+0           3           3           3
+0           3           3           5
+
+0           3           4           0
+0           3           4           4
+0           3           4           5
+
+3           0           0           0
+3           0           0           3
+3           0           0           5
+
+3           0           2           0
+3           0           2           3
+3           0           2           5
+
+3           0           3           0
+3           0           3           3
+3           0           3           5
+
+3           0           5           0
+3           0           5           5
+3           0           5           6
+
+3           3           0           0
+3           3           0           3
+3           3           0           5
+
+3           3           2           0
+3           3           2           3
+3           3           2           5
+
+3           3           3           0
+3           3           3           3
+3           3           3           5
+
+3           3           4           0
+3           3           4           4
+3           3           4           5
+
+3           5           0           0
+3           5           0           5
+3           5           0           6
+
+3           5           2           0
+3           5           2           5
+3           5           2           6
+
+3           5           3           0
+3           5           3           5
+3           5           3           6
+
+3           5           4           0
+3           5           4           5
+3           5           4           6
+
+3           5           5           0
+3           5           5           5
+3           5           5           6
+
+3           5           6           0
+3           5           6           6
+3           5           6           7
+
 """
 
 from threading import Condition
@@ -306,12 +429,23 @@ class PooledDB:
         """
         self._lock.acquire()
         try:
+            if not self._maxcached:
+                con._reset(force=self._reset)
+                self._idle_cache.append(con)
+            elif len(self._idle_cache) < self._maxcached:
+                con._reset(force=self._reset)
+                self._idle_cache.append(con)
+            else:
+                con.close()
+            self._connections -= 1
+            """
             if not self._maxcached or len(self._idle_cache) < self._maxcached:
                 con._reset(force=self._reset)  # rollback possible transaction
                 # the idle cache is not full, so put it there
                 self._idle_cache.append(con)  # append it to the idle cache
             else:  # if the idle cache is already full,
                 con.close()  # then close the connection
+            """
             self._connections -= 1
             self._lock.notify()
         finally:
